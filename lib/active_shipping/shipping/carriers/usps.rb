@@ -48,6 +48,19 @@ module ActiveMerchant
         :matter_for_the_blind => 'Matter for the blind',
         :envelope => 'Envelope'
       }
+
+      PackageIdentifierTypes = {
+        'tracking_number' => 'TRACKING_NUMBER_OR_DOORTAG',
+        'door_tag' => 'TRACKING_NUMBER_OR_DOORTAG',
+        'rma' => 'RMA',
+        'ground_shipment_id' => 'GROUND_SHIPMENT_ID',
+        'ground_invoice_number' => 'GROUND_INVOICE_NUMBER',
+        'ground_customer_reference' => 'GROUND_CUSTOMER_REFERENCE',
+        'ground_po' => 'GROUND_PO',
+        'express_reference' => 'EXPRESS_REFERENCE',
+        'express_mps_master' => 'EXPRESS_MPS_MASTER'
+      }
+
       PACKAGE_PROPERTIES = {
         'ZipOrigination' => :origin_zip,
         'ZipDestination' => :destination_zip,
@@ -112,6 +125,16 @@ module ActiveMerchant
         "WS" => "Western Samoa"
       }
 
+
+      def find_tracking_info(tracking_number, options={})
+        options = @options.update(options)
+        
+        tracking_request = build_tracking_request(tracking_number, options)
+        response = commit(save_request(tracking_request), (options[:test] || false)).gsub(/<(\/)?.*?\:(.*?)>/, '<\1\2>')
+        parse_tracking_response(response, options)
+      end
+
+
       def self.size_code_for(package)
         if package.inches(:max) <= 12
           'REGULAR'
@@ -169,6 +192,51 @@ module ActiveMerchant
       end
       
       protected
+      
+      def build_tracking_request(tracking_number, options={})
+        xml_request = XmlNode.new('TrackRequest', 'xmlns' => 'http://fedex.com/ws/track/v3') do |root_node|
+          root_node << build_request_header
+          
+          # Version
+          root_node << XmlNode.new('Version') do |version_node|
+            version_node << XmlNode.new('ServiceId', 'trck')
+            version_node << XmlNode.new('Major', '3')
+            version_node << XmlNode.new('Intermediate', '0')
+            version_node << XmlNode.new('Minor', '0')
+          end
+          
+          root_node << XmlNode.new('PackageIdentifier') do |package_node|
+            package_node << XmlNode.new('Value', tracking_number)
+            package_node << XmlNode.new('Type', PackageIdentifierTypes[options['package_identifier_type'] || 'tracking_number'])
+          end
+          
+          root_node << XmlNode.new('ShipDateRangeBegin', options['ship_date_range_begin']) if options['ship_date_range_begin']
+          root_node << XmlNode.new('ShipDateRangeEnd', options['ship_date_range_end']) if options['ship_date_range_end']
+          root_node << XmlNode.new('IncludeDetailedScans', 1)
+        end
+        xml_request.to_s
+      end
+      
+      def build_request_header
+        web_authentication_detail = XmlNode.new('WebAuthenticationDetail') do |wad|
+          wad << XmlNode.new('UserCredential') do |uc|
+            uc << XmlNode.new('Key', @options[:key])
+            uc << XmlNode.new('Password', @options[:password])
+          end
+        end
+        
+        client_detail = XmlNode.new('ClientDetail') do |cd|
+          cd << XmlNode.new('AccountNumber', @options[:account])
+          cd << XmlNode.new('MeterNumber', @options[:login])
+        end
+        
+        trasaction_detail = XmlNode.new('TransactionDetail') do |td|
+          td << XmlNode.new('CustomerTransactionId', 'ActiveShipping') # TODO: Need to do something better with this..
+        end
+        
+        [web_authentication_detail, client_detail, trasaction_detail]
+      end
+      
       
       def us_rates(origin, destination, packages, options={})
         request = build_us_rate_request(packages, origin.zip, destination.zip, options)
@@ -419,6 +487,71 @@ module ActiveMerchant
                     package.inches(:length) + package.inches(:width) + package.inches(:height)))
 
         return valid
+      end
+
+
+      def parse_tracking_response(response, options)
+        xml = REXML::Document.new(response)
+        root_node = xml.elements['TrackReply']
+        
+        success = response_success?(xml)
+        message = response_message(xml)
+        
+        if success
+          tracking_number, origin, destination = nil
+          shipment_events = []
+          
+          tracking_details = root_node.elements['TrackDetails']
+          tracking_number = tracking_details.get_text('TrackingNumber').to_s
+          
+          destination_node = tracking_details.elements['DestinationAddress']
+          destination = Location.new(
+                :country =>     destination_node.get_text('CountryCode').to_s,
+                :province =>    destination_node.get_text('StateOrProvinceCode').to_s,
+                :city =>        destination_node.get_text('City').to_s
+              )
+          
+          tracking_details.elements.each('Events') do |event|
+            address  = event.elements['Address']
+
+            city     = address.get_text('City').to_s
+            state    = address.get_text('StateOrProvinceCode').to_s
+            zip_code = address.get_text('PostalCode').to_s
+            country  = address.get_text('CountryCode').to_s
+            next if country.blank?
+            
+            location = Location.new(:city => city, :state => state, :postal_code => zip_code, :country => country)
+            description = event.get_text('EventDescription').to_s
+            
+            # for now, just assume UTC, even though it probably isn't
+            time = Time.parse("#{event.get_text('Timestamp').to_s}")
+            zoneless_time = Time.utc(time.year, time.month, time.mday, time.hour, time.min, time.sec)
+            
+            shipment_events << ShipmentEvent.new(description, zoneless_time, location)
+          end
+          shipment_events = shipment_events.sort_by(&:time)
+        end
+        
+        TrackingResponse.new(success, message, Hash.from_xml(response),
+          :xml => response,
+          :request => last_request,
+          :shipment_events => shipment_events,
+          :destination => destination,
+          :tracking_number => tracking_number
+        )
+      end
+            
+      def response_status_node(document)
+        document.elements['/*/Notifications/']
+      end
+      
+      def response_success?(document)
+        %w{SUCCESS WARNING NOTE}.include? response_status_node(document).get_text('Severity').to_s
+      end
+      
+      def response_message(document)
+        response_node = response_status_node(document)
+        "#{response_status_node(document).get_text('Severity').to_s} - #{response_node.get_text('Code').to_s}: #{response_node.get_text('Message').to_s}"
       end
       
       def commit(action, request, test = false)
