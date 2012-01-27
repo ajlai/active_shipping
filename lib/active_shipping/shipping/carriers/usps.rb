@@ -130,7 +130,7 @@ module ActiveMerchant
         options = @options.update(options)
         
         tracking_request = build_tracking_request(tracking_number, options)
-        response = commit(save_request(tracking_request), (options[:test] || false)).gsub(/<(\/)?.*?\:(.*?)>/, '<\1\2>')
+        response = commit(save_request(tracking_request), (options[:test] || false))
         parse_tracking_response(response, options)
       end
 
@@ -194,7 +194,7 @@ module ActiveMerchant
       protected
       
       def build_tracking_request(tracking_number, options={})
-        xml_request = XmlNode.new('TrackRequest', 'xmlns' => 'http://fedex.com/ws/track/v3') do |root_node|
+        xml_request = XmlNode.new('TrackRequest') do |root_node|
           root_node << build_request_header
           
           # Version
@@ -492,7 +492,7 @@ module ActiveMerchant
 
       def parse_tracking_response(response, options)
         xml = REXML::Document.new(response)
-        root_node = xml.elements['TrackReply']
+        root_node = xml.elements['TrackResponse']
         
         success = response_success?(xml)
         message = response_message(xml)
@@ -501,35 +501,39 @@ module ActiveMerchant
           tracking_number, origin, destination = nil
           shipment_events = []
           
-          tracking_details = root_node.elements['TrackDetails']
-          tracking_number = tracking_details.get_text('TrackingNumber').to_s
+          tracking_details = xml.elements.collect('*/*/TrackDetail'){ |e| e }
           
-          destination_node = tracking_details.elements['DestinationAddress']
-          destination = Location.new(
-                :country =>     destination_node.get_text('CountryCode').to_s,
-                :province =>    destination_node.get_text('StateOrProvinceCode').to_s,
-                :city =>        destination_node.get_text('City').to_s
-              )
-          
-          tracking_details.elements.each('Events') do |event|
-            address  = event.elements['Address']
+          tracking_number = root_node.elements['TrackInfo'].attributes['ID'].to_s
 
-            city     = address.get_text('City').to_s
-            state    = address.get_text('StateOrProvinceCode').to_s
-            zip_code = address.get_text('PostalCode').to_s
-            country  = address.get_text('CountryCode').to_s
-            next if country.blank?
+          destination = nil
+
+          #destination_node = tracking_details.elements['DestinationAddress']
+          # destination = Location.new(
+          #       :country =>     destination_node.get_text('CountryCode').to_s,
+          #       :province =>    destination_node.get_text('StateOrProvinceCode').to_s,
+          #       :city =>        destination_node.get_text('City').to_s
+          #     )
+          
+          tracking_details.each do |event|
+            shipment_events << ShipmentEvent.new("whee", Time.now.to_f, "here")
+          #   address  = event.elements['Address']
+
+          #   city     = address.get_text('City').to_s
+          #   state    = address.get_text('StateOrProvinceCode').to_s
+          #   zip_code = address.get_text('PostalCode').to_s
+          #   country  = address.get_text('CountryCode').to_s
+          #   next if country.blank?
             
-            location = Location.new(:city => city, :state => state, :postal_code => zip_code, :country => country)
-            description = event.get_text('EventDescription').to_s
+          #   location = Location.new(:city => city, :state => state, :postal_code => zip_code, :country => country)
+          #   description = event.get_text('EventDescription').to_s
             
-            # for now, just assume UTC, even though it probably isn't
-            time = Time.parse("#{event.get_text('Timestamp').to_s}")
-            zoneless_time = Time.utc(time.year, time.month, time.mday, time.hour, time.min, time.sec)
+          #   # for now, just assume UTC, even though it probably isn't
+          #   time = Time.parse("#{event.get_text('Timestamp').to_s}")
+          #   zoneless_time = Time.utc(time.year, time.month, time.mday, time.hour, time.min, time.sec)
             
-            shipment_events << ShipmentEvent.new(description, zoneless_time, location)
+          #   shipment_events << ShipmentEvent.new(description, zoneless_time, location)
           end
-          shipment_events = shipment_events.sort_by(&:time)
+          # shipment_events = shipment_events.sort_by(&:time)
         end
         
         TrackingResponse.new(success, message, Hash.from_xml(response),
@@ -546,10 +550,12 @@ module ActiveMerchant
       end
       
       def response_success?(document)
-        %w{SUCCESS WARNING NOTE}.include? response_status_node(document).get_text('Severity').to_s
+        #%w{SUCCESS WARNING NOTE}.include? response_status_node(document).get_text('Severity').to_s
+        true
       end
       
       def response_message(document)
+        return "Hola!"
         response_node = response_status_node(document)
         "#{response_status_node(document).get_text('Severity').to_s} - #{response_node.get_text('Code').to_s}: #{response_node.get_text('Message').to_s}"
       end
