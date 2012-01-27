@@ -502,7 +502,7 @@ module ActiveMerchant
           shipment_events = []
           
           tracking_details = xml.elements.collect('*/*/TrackDetail'){ |e| e }
-          
+
           tracking_number = root_node.elements['TrackInfo'].attributes['ID'].to_s
 
           destination = nil
@@ -515,7 +515,6 @@ module ActiveMerchant
           #     )
           
           tracking_details.each do |event|
-            shipment_events << ShipmentEvent.new("whee", Time.now.to_f, "here")
           #   address  = event.elements['Address']
 
           #   city     = address.get_text('City').to_s
@@ -528,12 +527,15 @@ module ActiveMerchant
           #   description = event.get_text('EventDescription').to_s
             
           #   # for now, just assume UTC, even though it probably isn't
-          #   time = Time.parse("#{event.get_text('Timestamp').to_s}")
-          #   zoneless_time = Time.utc(time.year, time.month, time.mday, time.hour, time.min, time.sec)
-            
-          #   shipment_events << ShipmentEvent.new(description, zoneless_time, location)
+            if event.text =~ /\b(\w+ \d{1,2}, 20\d{1,2}, \d{1,2}:\d{2} [ap]m|\w+ \d{1,2}, 20\d{1,2})\b/
+              time = Time.parse($1)
+              zoneless_time = Time.utc(time.year, time.month, time.mday, time.hour, time.min, time.sec)
+              
+            # shipment_events << ShipmentEvent.new(description, zoneless_time, location)
+              shipment_events << ShipmentEvent.new("whee", zoneless_time, "here")
+            end
           end
-          # shipment_events = shipment_events.sort_by(&:time)
+          shipment_events = shipment_events.sort_by(&:time)
         end
         
         TrackingResponse.new(success, message, Hash.from_xml(response),
