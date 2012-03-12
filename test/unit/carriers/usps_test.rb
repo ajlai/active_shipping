@@ -6,7 +6,17 @@ class USPSTest < Test::Unit::TestCase
     @packages  = TestFixtures.packages
     @locations = TestFixtures.locations
     @carrier   = USPS.new(:login => 'login')
+    @tracking_response = xml_fixture('usps/tracking_response')
   end
+  
+  
+  
+  def test_find_tracking_info_should_return_a_tracking_response
+    @carrier.expects(:commit).returns(@tracking_response)
+    assert_equal 'ActiveMerchant::Shipping::TrackingResponse', @carrier.find_tracking_info('EJ958083578US').class.name
+  end
+  
+  
   
   def test_size_codes
     assert_equal 'REGULAR', USPS.size_code_for(Package.new(2, [1,12,1], :units => :imperial))
