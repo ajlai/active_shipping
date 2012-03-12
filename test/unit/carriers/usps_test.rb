@@ -9,15 +9,34 @@ class USPSTest < Test::Unit::TestCase
     @tracking_response = xml_fixture('usps/tracking_response')
   end
   
-  
-  
   def test_find_tracking_info_should_return_a_tracking_response
     @carrier.expects(:commit).returns(@tracking_response)
-    assert_equal 'ActiveMerchant::Shipping::TrackingResponse', @carrier.find_tracking_info('EJ958083578US').class.name
+    assert_instance_of ActiveMerchant::Shipping::TrackingResponse, @carrier.find_tracking_info('9102901000462189604217', :test => true)
+  end
+
+  def test_find_tracking_info_should_parse_response_into_correct_number_of_shipment_events
+    @carrier.expects(:commit).returns(@tracking_response)
+    response = @carrier.find_tracking_info('9102901000462189604217', :test => true)
+    assert_equal 7, response.shipment_events.size
   end
   
+  def test_find_tracking_info_should_return_shipment_events_in_ascending_chronological_order
+    @carrier.expects(:commit).returns(@tracking_response)
+    response = @carrier.find_tracking_info('9102901000462189604217', :test => true)
+    assert_equal response.shipment_events.map(&:time).sort, response.shipment_events.map(&:time)
+  end
   
-  
+  def test_find_tracking_info_should_not_include_events_without_an_address
+    @carrier.expects(:commit).returns(@tracking_response)
+    assert_nothing_raised do
+      response = @carrier.find_tracking_info('9102901000462189604217', :test => true)
+      assert_nil response.shipment_events.find{|event| event.name == 'Shipment information sent to FedEx' }
+    end
+  end
+
+
+
+
   def test_size_codes
     assert_equal 'REGULAR', USPS.size_code_for(Package.new(2, [1,12,1], :units => :imperial))
     assert_equal 'LARGE', USPS.size_code_for(Package.new(2, [12.1,1,1], :units => :imperial))
