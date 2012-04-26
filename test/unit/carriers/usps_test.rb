@@ -25,14 +25,7 @@ class USPSTest < Test::Unit::TestCase
     response = @carrier.find_tracking_info('9102901000462189604217', :test => true)
     assert_equal response.shipment_events.map(&:time).sort, response.shipment_events.map(&:time)
   end
-  
-  def test_find_tracking_info_should_not_include_events_without_an_address
-    @carrier.expects(:commit).returns(@tracking_response)
-    assert_nothing_raised do
-      response = @carrier.find_tracking_info('9102901000462189604217', :test => true)
-      assert_nil response.shipment_events.find{|event| event.name == 'Shipment information sent to FedEx' }
-    end
-  end
+
 
 
 

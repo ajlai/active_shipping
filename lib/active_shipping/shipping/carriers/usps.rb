@@ -31,12 +31,14 @@ module ActiveMerchant
       API_CODES = {
         :us_rates => 'RateV4',
         :world_rates => 'IntlRateV2',
-        :test => 'CarrierPickupAvailability'
+        :test => 'CarrierPickupAvailability',
+        :track => 'TrackV2'
       }
       USE_SSL = {
         :us_rates => false,
         :world_rates => false,
-        :test => true
+        :test => true,
+        :track => false
       }
       CONTAINERS = {
         :envelope => 'Flat Rate Envelope',
@@ -130,7 +132,7 @@ module ActiveMerchant
         options = @options.update(options)
         
         tracking_request = build_tracking_request(tracking_number, options)
-        response = commit(save_request(tracking_request), (options[:test] || false))
+        response = commit(:track, tracking_request, (options[:test] || false))
         parse_tracking_response(response, options)
       end
 
@@ -196,8 +198,18 @@ module ActiveMerchant
 
 
  
-
+    # TODO: make a USPS request!
       def build_tracking_request(tracking_number, options={})
+      
+#<TrackRequest USERID="xxxxxxxx"> 
+#<TrackID ID="EJ958083578US"></TrackID>
+#</TrackRequest>
+ 
+    		xml_request = XmlNode.new('TrackRequest', 'USERID' => @options[:login]) do |root_node|
+    			root_node << XmlNode.new('TrackID', :ID => tracking_number)
+    		end
+    		return URI.encode(xml_request.to_s)
+    		
         xml_request = XmlNode.new('TrackRequest', 'xmlns' => 'http://fedex.com/ws/track/v3') do |root_node|
           root_node << build_request_header
           
@@ -219,75 +231,6 @@ module ActiveMerchant
           root_node << XmlNode.new('IncludeDetailedScans', 1)
         end
         xml_request.to_s
-      end
-      
-      def build_request_header
-        web_authentication_detail = XmlNode.new('WebAuthenticationDetail') do |wad|
-          wad << XmlNode.new('UserCredential') do |uc|
-            uc << XmlNode.new('Key', @options[:key])
-            uc << XmlNode.new('Password', @options[:password])
-          end
-        end
-        
-        client_detail = XmlNode.new('ClientDetail') do |cd|
-          cd << XmlNode.new('AccountNumber', @options[:account])
-          cd << XmlNode.new('MeterNumber', @options[:login])
-        end
-        
-        trasaction_detail = XmlNode.new('TransactionDetail') do |td|
-          td << XmlNode.new('CustomerTransactionId', 'ActiveShipping') # TODO: Need to do something better with this..
-        end
-        
-        [web_authentication_detail, client_detail, trasaction_detail]
-      end
-
-
-
-
-
-      
-      def build_tracking_request(tracking_number, options={})
-        xml_request = XmlNode.new('TrackRequest') do |root_node|
-          root_node << build_request_header
-          
-          # Version
-          root_node << XmlNode.new('Version') do |version_node|
-            version_node << XmlNode.new('ServiceId', 'trck')
-            version_node << XmlNode.new('Major', '3')
-            version_node << XmlNode.new('Intermediate', '0')
-            version_node << XmlNode.new('Minor', '0')
-          end
-          
-          root_node << XmlNode.new('PackageIdentifier') do |package_node|
-            package_node << XmlNode.new('Value', tracking_number)
-            package_node << XmlNode.new('Type', PackageIdentifierTypes[options['package_identifier_type'] || 'tracking_number'])
-          end
-          
-          root_node << XmlNode.new('ShipDateRangeBegin', options['ship_date_range_begin']) if options['ship_date_range_begin']
-          root_node << XmlNode.new('ShipDateRangeEnd', options['ship_date_range_end']) if options['ship_date_range_end']
-          root_node << XmlNode.new('IncludeDetailedScans', 1)
-        end
-        xml_request.to_s
-      end
-      
-      def build_request_header
-        web_authentication_detail = XmlNode.new('WebAuthenticationDetail') do |wad|
-          wad << XmlNode.new('UserCredential') do |uc|
-            uc << XmlNode.new('Key', @options[:key])
-            uc << XmlNode.new('Password', @options[:password])
-          end
-        end
-        
-        client_detail = XmlNode.new('ClientDetail') do |cd|
-          cd << XmlNode.new('AccountNumber', @options[:account])
-          cd << XmlNode.new('MeterNumber', @options[:login])
-        end
-        
-        trasaction_detail = XmlNode.new('TransactionDetail') do |td|
-          td << XmlNode.new('CustomerTransactionId', 'ActiveShipping') # TODO: Need to do something better with this..
-        end
-        
-        [web_authentication_detail, client_detail, trasaction_detail]
       end
       
       
@@ -623,7 +566,8 @@ module ActiveMerchant
         scheme = USE_SSL[action] ? 'https://' : 'http://'
         host = test ? TEST_DOMAINS[USE_SSL[action]] : LIVE_DOMAIN
         resource = test ? TEST_RESOURCE : LIVE_RESOURCE
-        "#{scheme}#{host}/#{resource}?API=#{API_CODES[action]}&XML=#{request}"
+        ret = "#{scheme}#{host}/#{resource}?API=#{API_CODES[action]}&XML=#{request}"
+        ret
       end
       
       def strip_zip(zip)
