@@ -129,8 +129,7 @@ module ActiveMerchant
 
 
       def find_tracking_info(tracking_number, options={})
-        options = @options.update(options)
-        
+        options = @options.update(options)        
         tracking_request = build_tracking_request(tracking_number, options)
         response = commit(:track, tracking_request, (options[:test] || false))
         parse_tracking_response(response, options)
@@ -205,11 +204,11 @@ module ActiveMerchant
 #<TrackID ID="EJ958083578US"></TrackID>
 #</TrackRequest>
  
-    		xml_request = XmlNode.new('TrackRequest', 'USERID' => @options[:login]) do |root_node|
-    			root_node << XmlNode.new('TrackID', :ID => tracking_number)
-    		end
-    		return URI.encode(xml_request.to_s)
-    		
+        xml_request = XmlNode.new('TrackRequest', 'USERID' => @options[:login]) do |root_node|
+          root_node << XmlNode.new('TrackID', :ID => tracking_number)
+        end
+        return URI.encode(xml_request.to_s)
+        
         xml_request = XmlNode.new('TrackRequest', 'xmlns' => 'http://fedex.com/ws/track/v3') do |root_node|
           root_node << build_request_header
           
@@ -496,11 +495,8 @@ module ActiveMerchant
         if success
           tracking_number, origin, destination = nil
           shipment_events = []
-          
           tracking_details = xml.elements.collect('*/*/TrackDetail'){ |e| e }
-
           tracking_number = root_node.elements['TrackInfo'].attributes['ID'].to_s
-
           destination = nil
 
           #destination_node = tracking_details.elements['DestinationAddress']
@@ -527,7 +523,7 @@ module ActiveMerchant
               time = Time.parse($1)
               zoneless_time = Time.utc(time.year, time.month, time.mday, time.hour, time.min, time.sec)
               
-            # shipment_events << ShipmentEvent.new(description, zoneless_time, location)
+              # shipment_events << ShipmentEvent.new(description, zoneless_time, location)
               shipment_events << ShipmentEvent.new("whee", zoneless_time, "here")
             end
           end
@@ -544,18 +540,16 @@ module ActiveMerchant
       end
             
       def response_status_node(document)
-        document.elements['/*/Notifications/']
+        document.elements['*/*/TrackSummary']
       end
       
       def response_success?(document)
-        #%w{SUCCESS WARNING NOTE}.include? response_status_node(document).get_text('Severity').to_s
-        true
+        response_status_node(document).get_text.to_s !~ /There is no record of that mail item/
       end
       
       def response_message(document)
-        return "Hola!"
         response_node = response_status_node(document)
-        "#{response_status_node(document).get_text('Severity').to_s} - #{response_node.get_text('Code').to_s}: #{response_node.get_text('Message').to_s}"
+        response_status_node(document).get_text.to_s
       end
       
       def commit(action, request, test = false)
@@ -566,8 +560,7 @@ module ActiveMerchant
         scheme = USE_SSL[action] ? 'https://' : 'http://'
         host = test ? TEST_DOMAINS[USE_SSL[action]] : LIVE_DOMAIN
         resource = test ? TEST_RESOURCE : LIVE_RESOURCE
-        ret = "#{scheme}#{host}/#{resource}?API=#{API_CODES[action]}&XML=#{request}"
-        ret
+        "#{scheme}#{host}/#{resource}?API=#{API_CODES[action]}&XML=#{request}"
       end
       
       def strip_zip(zip)

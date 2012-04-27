@@ -7,6 +7,14 @@ class USPSTest < Test::Unit::TestCase
     @locations = TestFixtures.locations
     @carrier   = USPS.new(:login => 'login')
     @tracking_response = xml_fixture('usps/tracking_response')
+    @tracking_response_failure = xml_fixture('usps/tracking_response_failure')
+  end
+  
+  def test_tracking_failure_should_raise_exception
+    @carrier.expects(:commit).returns(@tracking_response_failure)
+    assert_raises ResponseError do
+      @carrier.find_tracking_info('abc123xyz', :test => true)
+    end
   end
   
   def test_find_tracking_info_should_return_a_tracking_response
