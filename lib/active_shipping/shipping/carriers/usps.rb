@@ -194,45 +194,13 @@ module ActiveMerchant
       
       protected
 
-
-
- 
-    # TODO: make a USPS request!
       def build_tracking_request(tracking_number, options={})
-      
-#<TrackRequest USERID="xxxxxxxx"> 
-#<TrackID ID="EJ958083578US"></TrackID>
-#</TrackRequest>
- 
         xml_request = XmlNode.new('TrackRequest', 'USERID' => @options[:login]) do |root_node|
           root_node << XmlNode.new('TrackID', :ID => tracking_number)
         end
-        return URI.encode(xml_request.to_s)
-        
-        xml_request = XmlNode.new('TrackRequest', 'xmlns' => 'http://fedex.com/ws/track/v3') do |root_node|
-          root_node << build_request_header
-          
-          # Version
-          root_node << XmlNode.new('Version') do |version_node|
-            version_node << XmlNode.new('ServiceId', 'trck')
-            version_node << XmlNode.new('Major', '3')
-            version_node << XmlNode.new('Intermediate', '0')
-            version_node << XmlNode.new('Minor', '0')
-          end
-          
-          root_node << XmlNode.new('PackageIdentifier') do |package_node|
-            package_node << XmlNode.new('Value', tracking_number)
-            #package_node << XmlNode.new('Type', PackageIdentifierTypes[options['package_identifier_type'] || 'tracking_number'])
-          end
-          
-          root_node << XmlNode.new('ShipDateRangeBegin', options['ship_date_range_begin']) if options['ship_date_range_begin']
-          root_node << XmlNode.new('ShipDateRangeEnd', options['ship_date_range_end']) if options['ship_date_range_end']
-          root_node << XmlNode.new('IncludeDetailedScans', 1)
-        end
-        xml_request.to_s
+        URI.encode(xml_request.to_s)
       end
-      
-      
+
       def us_rates(origin, destination, packages, options={})
         request = build_us_rate_request(packages, origin.zip, destination.zip, options)
          # never use test mode; rate requests just won't work on test servers
@@ -484,7 +452,6 @@ module ActiveMerchant
         return valid
       end
 
-
       def parse_tracking_response(response, options)
         xml = REXML::Document.new(response)
         root_node = xml.elements['TrackResponse']
@@ -496,35 +463,34 @@ module ActiveMerchant
           tracking_number, origin, destination = nil
           shipment_events = []
           tracking_details = xml.elements.collect('*/*/TrackDetail'){ |e| e }
-          tracking_number = root_node.elements['TrackInfo'].attributes['ID'].to_s
-          destination = nil
-
-          #destination_node = tracking_details.elements['DestinationAddress']
-          # destination = Location.new(
-          #       :country =>     destination_node.get_text('CountryCode').to_s,
-          #       :province =>    destination_node.get_text('StateOrProvinceCode').to_s,
-          #       :city =>        destination_node.get_text('City').to_s
-          #     )
           
-          tracking_details.each do |event|
-          #   address  = event.elements['Address']
+          tracking_summary = xml.elements.collect('*/*/TrackSummary'){ |e| e }.first
+          tracking_details << tracking_summary
+          
+          tracking_number = root_node.elements['TrackInfo'].attributes['ID'].to_s
 
-          #   city     = address.get_text('City').to_s
-          #   state    = address.get_text('StateOrProvinceCode').to_s
-          #   zip_code = address.get_text('PostalCode').to_s
-          #   country  = address.get_text('CountryCode').to_s
-          #   next if country.blank?
+          tracking_details.each do |event|
+            # Out for Delivery, April 04, 2012, 8:03 am, DES MOINES, IA 50311
+            # Your item was delivered at 11:04 am on April 04, 2012 in DES MOINES, IA 50311.
+            # Your item is out for delivery at 8:13 am on January 27, 2012 in DES MOINES, IA 50311.
             
-          #   location = Location.new(:city => city, :state => state, :postal_code => zip_code, :country => country)
-          #   description = event.get_text('EventDescription').to_s
-            
-          #   # for now, just assume UTC, even though it probably isn't
-            if event.text =~ /\b(\w+ \d{1,2}, 20\d{1,2}, \d{1,2}:\d{2} [ap]m|\w+ \d{1,2}, 20\d{1,2})\b/
-              time = Time.parse($1)
+            location = nil
+            timestamp = nil
+            description = nil
+            if event.get_text.to_s =~ /^(.*), (\w+ \d\d, \d{4}, \d{1,2}:\d\d [ap]m), (.*), (\w\w) (\d{5})$/ ||
+              event.get_text.to_s =~ /^Your item \w{2,3} (out for delivery|delivered) at (\d{1,2}:\d\d [ap]m on \w+ \d\d, \d{4}) in (.*), (\w\w) (\d{5})\.$/
+              description = $1.upcase
+              timestamp   = $2
+              city        = $3
+              state       = $4
+              zip_code    = $5
+              location = Location.new(:city => city, :state => state, :postal_code => zip_code, :country => 'USA')
+            end
+            # for now, just assume UTC, even though it probably isn't
+            if location
+              time = Time.parse(timestamp)
               zoneless_time = Time.utc(time.year, time.month, time.mday, time.hour, time.min, time.sec)
-              
-              # shipment_events << ShipmentEvent.new(description, zoneless_time, location)
-              shipment_events << ShipmentEvent.new("whee", zoneless_time, "here")
+              shipment_events << ShipmentEvent.new(description, zoneless_time, location)
             end
           end
           shipment_events = shipment_events.sort_by(&:time)
