@@ -51,18 +51,6 @@ module ActiveMerchant
         :envelope => 'Envelope'
       }
 
-      PackageIdentifierTypes = {
-        'tracking_number' => 'TRACKING_NUMBER_OR_DOORTAG',
-        'door_tag' => 'TRACKING_NUMBER_OR_DOORTAG',
-        'rma' => 'RMA',
-        'ground_shipment_id' => 'GROUND_SHIPMENT_ID',
-        'ground_invoice_number' => 'GROUND_INVOICE_NUMBER',
-        'ground_customer_reference' => 'GROUND_CUSTOMER_REFERENCE',
-        'ground_po' => 'GROUND_PO',
-        'express_reference' => 'EXPRESS_REFERENCE',
-        'express_mps_master' => 'EXPRESS_MPS_MASTER'
-      }
-
       PACKAGE_PROPERTIES = {
         'ZipOrigination' => :origin_zip,
         'ZipDestination' => :destination_zip,
@@ -189,7 +177,7 @@ module ActiveMerchant
       def maximum_weight
         Mass.new(70, :pounds)
       end
-      
+
       protected
 
       def build_tracking_request(tracking_number, options={})
