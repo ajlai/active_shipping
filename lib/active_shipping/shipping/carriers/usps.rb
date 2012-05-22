@@ -188,7 +188,7 @@ module ActiveMerchant
       
       def maximum_weight
         Mass.new(70, :pounds)
-      end      
+      end
       
       protected
 
