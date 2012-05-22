@@ -127,14 +127,12 @@ module ActiveMerchant
         "WS" => "Western Samoa"
       }
 
-
       def find_tracking_info(tracking_number, options={})
         options = @options.update(options)        
         tracking_request = build_tracking_request(tracking_number, options)
         response = commit(:track, tracking_request, (options[:test] || false))
         parse_tracking_response(response, options)
       end
-
 
       def self.size_code_for(package)
         if package.inches(:max) <= 12
@@ -470,15 +468,11 @@ module ActiveMerchant
           tracking_number = root_node.elements['TrackInfo'].attributes['ID'].to_s
 
           tracking_details.each do |event|
-            # Out for Delivery, April 04, 2012, 8:03 am, DES MOINES, IA 50311
-            # Your item was delivered at 11:04 am on April 04, 2012 in DES MOINES, IA 50311.
-            # Your item is out for delivery at 8:13 am on January 27, 2012 in DES MOINES, IA 50311.
-            
             location = nil
             timestamp = nil
             description = nil
-            if event.get_text.to_s =~ /^(.*), (\w+ \d\d, \d{4}, \d{1,2}:\d\d [ap]m), (.*), (\w\w) (\d{5})$/ ||
-              event.get_text.to_s =~ /^Your item \w{2,3} (out for delivery|delivered) at (\d{1,2}:\d\d [ap]m on \w+ \d\d, \d{4}) in (.*), (\w\w) (\d{5})\.$/
+            if event.get_text.to_s =~ /^(.*), (\w+ \d\d, \d{4}, \d{1,2}:\d\d [ap]m), (.*), (\w\w) (\d{5})$/i ||
+                event.get_text.to_s =~ /^Your item \w{2,3} (out for delivery|delivered) at (\d{1,2}:\d\d [ap]m on \w+ \d\d, \d{4}) in (.*), (\w\w) (\d{5})\.$/i
               description = $1.upcase
               timestamp   = $2
               city        = $3
@@ -486,7 +480,6 @@ module ActiveMerchant
               zip_code    = $5
               location = Location.new(:city => city, :state => state, :postal_code => zip_code, :country => 'USA')
             end
-            # for now, just assume UTC, even though it probably isn't
             if location
               time = Time.parse(timestamp)
               zoneless_time = Time.utc(time.year, time.month, time.mday, time.hour, time.min, time.sec)

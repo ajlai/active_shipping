@@ -8,13 +8,13 @@ class USPSTest < Test::Unit::TestCase
     @carrier   = USPS.new(fixtures(:usps))
   end
   
-  def test_actual_tracking
-    tracking_info = @carrier.find_tracking_info('9102927003525225378453')
-    puts tracking_info.inspect
-    tracking_info.shipment_events.each do |event|
-      puts "#{event.name} at #{event.location.city}, #{event.location.state} on #{event.time}. #{event.message}"
-    end
-  end
+#   def test_actual_tracking
+#     tracking_info = @carrier.find_tracking_info('9102927003525225378453')
+#     puts tracking_info.inspect
+#     tracking_info.shipment_events.each do |event|
+#       puts "#{event.name} at #{event.location.city}, #{event.location.state} on #{event.time}. #{event.message}"
+#     end
+#   end
   
   def test_tracking
     assert_nothing_raised do
