@@ -5,7 +5,8 @@ class UPSTest < Test::Unit::TestCase
   def setup
     @packages  = TestFixtures.packages
     @locations = TestFixtures.locations
-    @carrier   = UPS.new(fixtures(:ups).merge(:test => true))
+    @options = fixtures(:ups).merge(:test => true)
+    @carrier   = UPS.new(@options)
   end
   
   def test_tracking
@@ -51,12 +52,26 @@ class UPSTest < Test::Unit::TestCase
   end
   
   def test_just_country_given
-    response = @carrier.find_rates( 
-                 @locations[:beverly_hills],
-                 Location.new(:country => 'CA'),
-                 Package.new(100, [5,10,20])
-               )
-    assert_not_equal [], response.rates
+    if !@options[:origin_account]
+      response = @carrier.find_rates( 
+                   @locations[:beverly_hills],
+                   Location.new(:country => 'CA'),
+                   Package.new(100, [5,10,20])
+                 )
+      assert_not_equal [], response.rates
+    end
+  end
+
+  def test_just_country_given_with_origin_account_fails
+    if @options[:origin_account]
+      assert_raise ResponseError do
+        response = @carrier.find_rates( 
+                   @locations[:beverly_hills],
+                   Location.new(:country => 'CA'),
+                   Package.new(100, [5,10,20])
+                 )
+      end
+    end
   end
   
   def test_ottawa_to_beverly_hills
@@ -80,6 +95,11 @@ class UPSTest < Test::Unit::TestCase
     assert_equal 'UPS', rate.carrier
     assert_equal 'CAD', rate.currency
     assert_instance_of Fixnum, rate.total_price
+    if @options[:origin_account]
+      assert_instance_of Fixnum, rate.negotiated_rate
+    else
+      assert_equal rate.negotiated_rate, 0
+    end
     assert_instance_of Fixnum, rate.price
     assert_instance_of String, rate.service_name
     assert_instance_of String, rate.service_code
@@ -103,14 +123,29 @@ class UPSTest < Test::Unit::TestCase
     end
   end
   
+  def test_ottawa_to_us_fails_with_only_zip_and_origin_account
+    if @options[:origin_account]
+      assert_raises ResponseError do
+        @carrier.find_rates(
+          @locations[:ottawa],
+          Location.new(:country => 'US', :zip => 90210),
+          @packages.values_at(:book, :wii),
+          :test => true
+        )
+      end
+    end
+  end
+
   def test_ottawa_to_us_succeeds_with_only_zip
-    assert_nothing_raised do
-      @carrier.find_rates(
-        @locations[:ottawa],
-        Location.new(:country => 'US', :zip => 90210),
-        @packages.values_at(:book, :wii),
-        :test => true
-      )
+    if !@options[:origin_account]
+      assert_nothing_raised do
+        @carrier.find_rates(
+          @locations[:ottawa],
+          Location.new(:country => 'US', :zip => 90210),
+          @packages.values_at(:book, :wii),
+          :test => true
+        )
+      end
     end
   end
   

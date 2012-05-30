@@ -214,7 +214,11 @@ module ActiveMerchant
             end
             
             # not implemented:  * Shipment/ShipmentServiceOptions element
-            #                   * Shipment/RateInformation element
+            if options[:origin_account]
+              shipment << XmlNode.new("RateInformation") do |rate_info_node|
+                rate_info_node << XmlNode.new("NegotiatedRatesIndicator")
+              end
+            end
             
           end
           
@@ -265,7 +269,7 @@ module ActiveMerchant
       
       def parse_rate_response(origin, destination, packages, response, options={})
         rates = []
-        
+        File.open('/Users/timmy/code/active_shipping/foo.txt', 'w') {|f| f.write(response) }
         xml = REXML::Document.new(response)
         success = response_success?(xml)
         message = response_message(xml)
@@ -277,14 +281,14 @@ module ActiveMerchant
             service_code = rated_shipment.get_text('Service/Code').to_s
             days_to_delivery = rated_shipment.get_text('GuaranteedDaysToDelivery').to_s.to_i
             delivery_date  = days_to_delivery >= 1 ? days_to_delivery.days.from_now.strftime("%Y-%m-%d") : nil
-
             rate_estimates << RateEstimate.new(origin, destination, @@name,
                                 service_name_for(origin, service_code),
                                 :total_price => rated_shipment.get_text('TotalCharges/MonetaryValue').to_s.to_f,
                                 :currency => rated_shipment.get_text('TotalCharges/CurrencyCode').to_s,
                                 :service_code => service_code,
                                 :packages => packages,
-                                :delivery_range => [delivery_date])
+                                :delivery_range => [delivery_date],
+                                :negotiated_rate => rated_shipment.get_text('NegotiatedRates/NetSummaryCharges/GrandTotal/MonetaryValue').to_s.to_f)
           end
         end
         RateResponse.new(success, message, Hash.from_xml(response).values.first, :rates => rate_estimates, :xml => response, :request => last_request)

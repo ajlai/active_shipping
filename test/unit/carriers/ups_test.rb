@@ -71,12 +71,33 @@ class UPSTest < Test::Unit::TestCase
                    "UPS Next Day Air Early A.M.",
                    "UPS Next Day Air"], response.rates.map(&:service_name)
     assert_equal [992, 2191, 3007, 5509, 9401, 6124], response.rates.map(&:price)
+    assert_equal [0, 0, 0, 0, 0, 0], response.rates.map(&:negotiated_rate)
     
     date_test = [nil, 3, 2, 1, 1, 1].map do |days| 
       DateTime.strptime(days.days.from_now.strftime("%Y-%m-%d"), "%Y-%m-%d") if days
     end
     
     assert_equal date_test, response.rates.map(&:delivery_date)
+  end
+
+  def test_response_with_origin_account_parsing
+    @carrier   = UPS.new(
+                   :key => 'key',
+                   :login => 'login',
+                   :origin_account => 'account_number',
+                   :password => 'password'
+                 )
+    mock_response = xml_fixture('ups/test_real_home_as_residential_destination_with_origin_account_response')
+    @carrier.expects(:commit).returns(mock_response)
+    response = @carrier.find_rates( @locations[:beverly_hills],
+                                    @locations[:real_home_as_residential],
+                                    @packages[:chocolate_stuff])
+    assert_equal [ "UPS Express",
+                   "UPS Worldwide Expedited",
+                   "UPS Worldwide Express Plus",
+                   "UPS Saver"], response.rates.map(&:service_name)
+    assert_equal [18893, 17856, 23473, 18286], response.rates.map(&:price)
+    assert_equal [18704, 17677, 23238, 18103], response.rates.map(&:negotiated_rate)
   end
   
   def test_maximum_weight
