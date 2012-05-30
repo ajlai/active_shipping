@@ -269,7 +269,6 @@ module ActiveMerchant
       
       def parse_rate_response(origin, destination, packages, response, options={})
         rates = []
-        File.open('/Users/timmy/code/active_shipping/foo.txt', 'w') {|f| f.write(response) }
         xml = REXML::Document.new(response)
         success = response_success?(xml)
         message = response_message(xml)
