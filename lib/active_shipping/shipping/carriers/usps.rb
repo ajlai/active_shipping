@@ -31,12 +31,14 @@ module ActiveMerchant
       API_CODES = {
         :us_rates => 'RateV4',
         :world_rates => 'IntlRateV2',
-        :test => 'CarrierPickupAvailability'
+        :test => 'CarrierPickupAvailability',
+        :track => 'TrackV2'
       }
       USE_SSL = {
         :us_rates => false,
         :world_rates => false,
-        :test => true
+        :test => true,
+        :track => false
       }
       CONTAINERS = {
         :envelope => 'Flat Rate Envelope',
@@ -48,6 +50,7 @@ module ActiveMerchant
         :matter_for_the_blind => 'Matter for the blind',
         :envelope => 'Envelope'
       }
+
       PACKAGE_PROPERTIES = {
         'ZipOrigination' => :origin_zip,
         'ZipDestination' => :destination_zip,
@@ -112,6 +115,13 @@ module ActiveMerchant
         "WS" => "Western Samoa"
       }
 
+      def find_tracking_info(tracking_number, options={})
+        options = @options.update(options)        
+        tracking_request = build_tracking_request(tracking_number, options)
+        response = commit(:track, tracking_request, (options[:test] || false))
+        parse_tracking_response(response, options)
+      end
+
       def self.size_code_for(package)
         if package.inches(:max) <= 12
           'REGULAR'
@@ -167,9 +177,16 @@ module ActiveMerchant
       def maximum_weight
         Mass.new(70, :pounds)
       end
-      
+
       protected
-      
+
+      def build_tracking_request(tracking_number, options={})
+        xml_request = XmlNode.new('TrackRequest', 'USERID' => @options[:login]) do |root_node|
+          root_node << XmlNode.new('TrackID', :ID => tracking_number)
+        end
+        URI.encode(xml_request.to_s)
+      end
+
       def us_rates(origin, destination, packages, options={})
         request = build_us_rate_request(packages, origin.zip, destination.zip, options)
          # never use test mode; rate requests just won't work on test servers
@@ -419,6 +436,68 @@ module ActiveMerchant
                     package.inches(:length) + package.inches(:width) + package.inches(:height)))
 
         return valid
+      end
+
+      def parse_tracking_response(response, options)
+        xml = REXML::Document.new(response)
+        root_node = xml.elements['TrackResponse']
+        
+        success = response_success?(xml)
+        message = response_message(xml)
+        
+        if success
+          tracking_number, origin, destination = nil
+          shipment_events = []
+          tracking_details = xml.elements.collect('*/*/TrackDetail'){ |e| e }
+          
+          tracking_summary = xml.elements.collect('*/*/TrackSummary'){ |e| e }.first
+          tracking_details << tracking_summary
+          
+          tracking_number = root_node.elements['TrackInfo'].attributes['ID'].to_s
+
+          tracking_details.each do |event|
+            location = nil
+            timestamp = nil
+            description = nil
+            if event.get_text.to_s =~ /^(.*), (\w+ \d\d, \d{4}, \d{1,2}:\d\d [ap]m), (.*), (\w\w) (\d{5})$/i ||
+                event.get_text.to_s =~ /^Your item \w{2,3} (out for delivery|delivered) at (\d{1,2}:\d\d [ap]m on \w+ \d\d, \d{4}) in (.*), (\w\w) (\d{5})\.$/i
+              description = $1.upcase
+              timestamp   = $2
+              city        = $3
+              state       = $4
+              zip_code    = $5
+              location = Location.new(:city => city, :state => state, :postal_code => zip_code, :country => 'USA')
+            end
+            if location
+              time = Time.parse(timestamp)
+              zoneless_time = Time.utc(time.year, time.month, time.mday, time.hour, time.min, time.sec)
+              shipment_events << ShipmentEvent.new(description, zoneless_time, location)
+            end
+          end
+          shipment_events = shipment_events.sort_by(&:time)
+        end
+        
+        TrackingResponse.new(success, message, Hash.from_xml(response),
+          :xml => response,
+          :request => last_request,
+          :shipment_events => shipment_events,
+          :destination => destination,
+          :tracking_number => tracking_number
+        )
+      end
+            
+      def response_status_node(document)
+        document.elements['*/*/TrackSummary'] || document.elements['Error/Description']
+      end
+      
+      def response_success?(document)
+        summary = response_status_node(document).get_text.to_s
+        !(summary =~ /There is no record of that mail item/ || summary =~ /This Information has not been included in this Test Server\./)
+      end
+      
+      def response_message(document)
+        response_node = response_status_node(document)
+        response_status_node(document).get_text.to_s
       end
       
       def commit(action, request, test = false)
