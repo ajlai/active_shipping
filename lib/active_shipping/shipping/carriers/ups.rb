@@ -13,8 +13,9 @@ module ActiveMerchant
       LIVE_URL = 'https://onlinetools.ups.com'
       
       RESOURCES = {
-        :rates => 'ups.app/xml/Rate',
-        :track => 'ups.app/xml/Track'
+        :rates           => 'ups.app/xml/Rate',
+        :track           => 'ups.app/xml/Track',
+        :time_in_transit => 'ups.app/xml/TimeInTransit'
       }
       
       PICKUP_CODES = HashWithIndifferentAccess.new({
@@ -106,13 +107,22 @@ module ActiveMerchant
       end
       
       def find_tracking_info(tracking_number, options={})
-        options = @options.update(options)
+        options = @options.merge(options)
         access_request = build_access_request
         tracking_request = build_tracking_request(tracking_number, options)
         response = commit(:track, save_request(access_request + tracking_request), (options[:test] || false))
         parse_tracking_response(response, options)
       end
       
+      def find_time_in_transit(origin, destination, pickup_date, options={})
+        origin, destination = upsified_location(origin), upsified_location(destination)
+        options = @options.merge(options)
+        access_request = build_access_request
+        time_in_transit_request = build_time_in_transit_request(origin, destination, pickup_date, options)
+        response = commit(:time_in_transit, save_request(access_request + time_in_transit_request), (options[:test] || false))
+        parse_time_in_transit_response(origin, destination, response, options)
+      end
+
       protected
       
       def upsified_location(location)
@@ -133,7 +143,7 @@ module ActiveMerchant
           access_request << XmlNode.new('UserId', @options[:login])
           access_request << XmlNode.new('Password', @options[:password])
         end
-        xml_request.to_s
+        xml_request.to_xml
       end
       
       def build_rate_request(origin, destination, packages, options={})
@@ -237,6 +247,36 @@ module ActiveMerchant
         xml_request.to_s
       end
       
+      def build_time_in_transit_request(origin, destination, pickup_date, options={})
+        xml_request = XmlNode.new('TimeInTransitRequest') do |root_node|
+          root_node << XmlNode.new('Request') do |request|
+            request << XmlNode.new('RequestAction', 'TimeInTransit')
+          end
+
+          root_node << XmlNode.new('TransitFrom') { |from| from << build_address_artifact_node(origin) }
+          root_node << XmlNode.new('TransitTo') { |to| to << build_address_artifact_node(destination) }
+
+          if options[:weight]
+            root_node << XmlNode.new('ShipmentWeight') do |shipment_weight|
+              shipment_weight << XmlNode.new('UnitOfMeasurement') do |unit|
+                unit << XmlNode.new('Code', 'LBS')
+              end
+              shipment_weight << XmlNode.new('Weight', options[:weight])
+            end
+          end
+
+          root_node << XmlNode.new('PickupDate', pickup_date.strftime('%Y%m%d'))
+
+          if options[:customs_value]
+            root_node << XmlNode.new('InvoiceLineTotal') do |invoice_line_total|
+              invoice_line_total << XmlNode.new('CurrencyCode', 'USD')
+              invoice_line_total << XmlNode.new('MonetaryValue', options[:customs_value])
+            end
+          end
+        end
+        xml_request.to_xml
+      end
+
       def build_location_node(name,location,options={})
         # not implemented:  * Shipment/Shipper/Name element
         #                   * Shipment/(ShipTo|ShipFrom)/CompanyName element
@@ -267,6 +307,16 @@ module ActiveMerchant
         end
       end
       
+      def build_address_artifact_node(location)
+        XmlNode.new('AddressArtifactFormat') do |address|
+          address << XmlNode.new('PoliticalDivision2', location.city) unless location.city.blank?
+          address << XmlNode.new('PoliticalDivision1', location.province) unless location.province.blank?
+          address << XmlNode.new('CountryCode', location.country_code)
+          address << XmlNode.new('PostcodePrimaryLow', location.postal_code) unless location.postal_code.blank?
+          address << XmlNode.new('ResidentialAddressIndicator') unless location.commercial?
+        end
+      end
+
       def parse_rate_response(origin, destination, packages, response, options={})
         rates = []
         xml = REXML::Document.new(response)
@@ -353,6 +403,28 @@ module ActiveMerchant
           :tracking_number => tracking_number)
       end
       
+      def parse_time_in_transit_response(origin, destination, response, options={})
+        xml = REXML::Document.new(response)
+        success = response_success?(xml)
+        message = response_message(xml)
+
+        time_estimates = if success
+          xml.get_elements('/*/*/ServiceSummary').map do |e|
+            TimeInTransitEstimate.new(origin, destination, @@name, e.get_text('Service/Description').to_s,
+              :business_days => e.get_text('EstimatedArrival/BusinessTransitDays').to_s.to_i
+            )
+          end
+        else
+          []
+        end
+
+        TimeInTransitResponse.new(success, message, Hash.from_xml(response).values.first,
+          :times => time_estimates,
+          :xml => response,
+          :request => last_request
+        )
+      end
+
       def location_from_address_node(address)
         return nil unless address
         Location.new(
