@@ -58,7 +58,7 @@ module ActiveMerchant
         "14" => "UPS Next Day Air Early A.M.",
         "54" => "UPS Worldwide Express Plus",
         "59" => "UPS 2nd Day Air A.M.",
-        "65" => "UPS Saver",
+        "65" => "UPS Worldwide Saver",
         "82" => "UPS Today Standard",
         "83" => "UPS Today Dedicated Courier",
         "84" => "UPS Today Intercity",
@@ -460,7 +460,7 @@ module ActiveMerchant
         when *EU_COUNTRY_CODES then EU_ORIGIN_SERVICES[code]
         end
         
-        name ||= OTHER_NON_US_ORIGIN_SERVICES[code] unless name == 'US'
+        name ||= OTHER_NON_US_ORIGIN_SERVICES[code] unless origin == 'US'
         name ||= DEFAULT_SERVICES[code]
       end
       
