@@ -1,5 +1,6 @@
 # -*- encoding: utf-8 -*-
 require 'cgi'
+require 'base64'
 
 module ActiveMerchant
   module Shipping
@@ -17,28 +18,29 @@ module ActiveMerchant
       
       cattr_reader :name
       @@name = "USPS"
-      
+
       LIVE_DOMAIN = 'production.shippingapis.com'
-      LIVE_RESOURCE = 'ShippingAPI.dll'
-      
-      TEST_DOMAINS = { #indexed by security; e.g. TEST_DOMAINS[USE_SSL[:rates]]
-        true => 'secure.shippingapis.com',
-        false => 'testing.shippingapis.com'
-      }
-      
-      TEST_RESOURCE = 'ShippingAPITest.dll'
-      
+      LIVE_RESOURCE = '/ShippingAPI.dll'
+
+      TEST_DOMAIN ='testing.shippingapis.com'
+      TEST_RESOURCE = '/ShippingAPITest.dll'
+
+      SSL_DOMAIN = 'secure.shippingapis.com'
+      SSL_RESOURCE = '/ShippingAPI.dll'
+
       API_CODES = {
         :us_rates => 'RateV4',
         :world_rates => 'IntlRateV2',
         :test => 'CarrierPickupAvailability',
-        :track => 'TrackV2'
+        :track => 'TrackV2',
+        :merchandise_return => "MerchandiseReturnV4"
       }
       USE_SSL = {
         :us_rates => false,
         :world_rates => false,
         :test => true,
-        :track => false
+        :track => false,
+        :merchandise_return => true
       }
       CONTAINERS = {
         :envelope => 'Flat Rate Envelope',
@@ -178,11 +180,64 @@ module ActiveMerchant
         Mass.new(70, :pounds)
       end
 
+      # Public: Gets the return shipping label.
+      # Aryk: I had to bypass the #commit method because the API seems to only work at this endpoint for both testing
+      # and production. If someone can fix this to work with the current #commit function, be my guest...
+      def get_return_shipping_label(options={})
+        options = @options.merge(options)
+        response = commit(:merchandise_return, build_return_shipping_label_request(options))
+        doc = REXML::Document.new(response)
+
+        { :return_label  => Base64.decode64(doc.elements["//MerchandiseReturnLabel"].text),
+          :return_number => doc.elements["//MerchandiseReturnNumber"].text.to_i,
+          :zone          => doc.elements["//Zone"].text.to_i }
+      end
+
       protected
 
       def build_tracking_request(tracking_number, options={})
         xml_request = XmlNode.new('TrackRequest', 'USERID' => @options[:login]) do |root_node|
           root_node << XmlNode.new('TrackID', :ID => tracking_number)
+        end
+        URI.encode(xml_request.to_s)
+      end
+
+      def build_return_shipping_label_request(options={})
+        xml_request = XmlNode.new('EMRSV4.0Request', 'USERID' => options[:login], 'PASSWORD' => options[:password]) do |request|
+          request << XmlNode.new('Option', "RIGHTWINDOW")
+          {
+            :customer => {
+              # According to API, Address2 cannot be blank, Address1 contains secondary info, hence why they are switched.
+              :name => "CustomerName",  :address_2 => "CustomerAddress1", :address_1 => "CustomerAddress2",
+              :city => "CustomerCity", :state => "CustomerState", :zip5 => "CustomerZip5", :zip4 => "CustomerZip4"
+            },
+            :retailer => {:name => "RetailerName", :address => "RetailerAddress"},
+            :permit => {
+              :number => "PermitNumber", :issuing_po_city => "PermitIssuingPOCity",
+              :issuing_po_state => "PermitIssuingPOState", :issuing_po_zip5 => "PermitIssuingPOZip5"
+            },
+            :pdu => {
+              :firm_name => "PDUFirmName", :po_box => "PDUPOBox", :city => "PDUCity", :state => "PDUState",
+              :zip5 => "PDUZip5", :zip4 => "PDUZip4"
+            }
+          }.each do |section, mapping|
+            properties = options.fetch(section)
+            mapping.each { |key, label| request << XmlNode.new(label, properties[key]) }
+          end
+
+          request << XmlNode.new('ServiceType', US_SERVICES[options[:service]])
+
+          request << XmlNode.new('DeliveryConfirmation', !!options[:delivery_confirmation])
+          request << XmlNode.new('InsuranceValue', options[:insurance_value])
+          request << XmlNode.new('MailingAckPackageID', options[:mailing_acknowledgement_package_id])
+
+          request << XmlNode.new('WeightInPounds', (options[:weight_in_pounds] || 0).ceil)
+          request << XmlNode.new('WeightInOunces', (options[:weight_in_ounces] || 0).ceil)
+
+          request << XmlNode.new('RMA', options[:rma_number])
+          request << XmlNode.new('RMAPICFlag', !!options[:rma_pic_flag])
+          request << XmlNode.new('ImageType', options[:image_type] || "TIF")
+          request << XmlNode.new('RMABarcode', !!options[:rma_bar_code])
         end
         URI.encode(xml_request.to_s)
       end
@@ -505,10 +560,17 @@ module ActiveMerchant
       end
       
       def request_url(action, request, test)
-        scheme = USE_SSL[action] ? 'https://' : 'http://'
-        host = test ? TEST_DOMAINS[USE_SSL[action]] : LIVE_DOMAIN
-        resource = test ? TEST_RESOURCE : LIVE_RESOURCE
-        "#{scheme}#{host}/#{resource}?API=#{API_CODES[action]}&XML=#{request}"
+        "#{endpoint_url(action, test)}?API=#{API_CODES[action]}&XML=#{request}"
+      end
+
+      # Aryk: I changed this to be inline with:
+      # https://github.com/FotoVerite/awesome-usps/blob/master/lib/foto_verite/gateway.rb
+      # The old way the endpoint was created didn't work for merchandise returns.
+      def endpoint_url(action, test)
+        if USE_SSL[action] then "https://#{SSL_DOMAIN}#{SSL_RESOURCE}"
+        elsif test         then "http://#{TEST_DOMAIN}#{TEST_RESOURCE}"
+        else                    "http://#{LIVE_DOMAIN}#{LIVE_RESOURCE}"
+        end
       end
       
       def strip_zip(zip)
