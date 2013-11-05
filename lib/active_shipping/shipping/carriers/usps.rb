@@ -33,14 +33,16 @@ module ActiveMerchant
         :world_rates => 'IntlRateV2',
         :test => 'CarrierPickupAvailability',
         :track => 'TrackV2',
-        :merchandise_return => "MerchandiseReturnV4"
+        :merchandise_return => "MerchandiseReturnV4",
+        :address_validation => "Verify"
       }
       USE_SSL = {
         :us_rates => false,
         :world_rates => false,
         :test => true,
         :track => false,
-        :merchandise_return => true
+        :merchandise_return => true,
+        :address_validation => true
       }
       CONTAINERS = {
         :envelope => 'Flat Rate Envelope',
@@ -193,6 +195,12 @@ module ActiveMerchant
           :zone          => doc.elements["//Zone"].text.to_i }
       end
 
+      def get_address_validation(options={})
+        options = @options.merge(options)
+        response = commit(:address_validation, build_address_validation_request(options))
+        self.class::AddressValidation.new(response)
+      end
+
       protected
 
       def build_tracking_request(tracking_number, options={})
@@ -238,6 +246,22 @@ module ActiveMerchant
           request << XmlNode.new('RMAPICFlag', !!options[:rma_pic_flag])
           request << XmlNode.new('ImageType', options[:image_type] || "TIF")
           request << XmlNode.new('RMABarcode', !!options[:rma_bar_code])
+        end
+        URI.encode(xml_request.to_s)
+      end
+
+      def build_address_validation_request(options={})
+        options.symbolize_keys!
+        xml_request = XmlNode.new('AddressValidateRequest', 'USERID' => options[:login]) do |request|
+          request << XmlNode.new('Address', 'ID' => "0") do |address_xml|
+            # That's correct, Address1 contains the second address line
+            address_xml << XmlNode.new("Address1", options[:street_line_2])
+            address_xml << XmlNode.new("Address2", options[:street_line_1])
+            address_xml << XmlNode.new("City", options[:city])
+            address_xml << XmlNode.new("State", options[:region] || options[:state])
+            address_xml << XmlNode.new("Zip5", options[:zip] || options[:postal_code])
+            address_xml << XmlNode.new("Zip4", "")
+          end
         end
         URI.encode(xml_request.to_s)
       end
@@ -575,6 +599,51 @@ module ActiveMerchant
       
       def strip_zip(zip)
         zip.to_s.scan(/\d{5}/).first || zip
+      end
+
+
+      class AddressValidation
+        def initialize(xml)
+          @doc = REXML::Document.new(xml)
+        end
+
+        def attributes
+          {
+            street_line_1: street_line_1,
+            street_line_2: street_line_2,
+            city: city,
+            state: state,
+            zip: zip
+          }
+        end
+
+        def error
+          (@doc.get_text('//Error/Description') || @doc.get_text('//ReturnText')).to_s
+        end
+
+        def valid?
+          error.blank?
+        end
+
+        def street_line_1
+          @doc.get_text('//Address/Address2').to_s
+        end
+
+        def street_line_2
+          @doc.get_text('//Address/Address1').to_s
+        end
+
+        def city
+          @doc.get_text('//Address/City').to_s
+        end
+
+        def state
+          @doc.get_text('//Address/State').to_s
+        end
+
+        def zip
+          @doc.get_text('//Address/Zip5').to_s
+        end
       end
       
     end
