@@ -246,6 +246,8 @@ module ActiveMerchant
           request << XmlNode.new('RMAPICFlag', !!options[:rma_pic_flag])
           request << XmlNode.new('ImageType', options[:image_type] || "TIF")
           request << XmlNode.new('RMABarcode', !!options[:rma_bar_code])
+
+          request << XmlNode.new('AllowNonCleansedCustAddr', !!options[:allow_non_cleansed_customer_address])
         end
         URI.encode(xml_request.to_s)
       end
