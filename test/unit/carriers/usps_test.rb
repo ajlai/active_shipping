@@ -449,6 +449,11 @@ class USPSTest < Test::Unit::TestCase
     assert_equal 12, details.zoneless_time.mday
   end
 
+  def test_extract_event_details_handles_delivered_to_an_individual
+    assert details = carrier.extract_event_details("Your item was delivered to an individual at the address at 1:10 pm on November 24, 2014 in VAN NUYS, CA 91411.")
+    assert_equal "DELIVERED", details.description
+  end
+
   private
 
   def build_service_node(options = {})
