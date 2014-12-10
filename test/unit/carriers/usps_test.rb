@@ -454,6 +454,11 @@ class USPSTest < Test::Unit::TestCase
     assert_equal "DELIVERED", details.description
   end
 
+  def test_extract_event_details_handles_delivered_on_or_at_the_mailbox
+    assert details = carrier.extract_event_details("Your item was delivered in or at the mailbox at 1:58 pm on November 20, 2014 in AJO, AZ 85321.")
+    assert_equal "DELIVERED", details.description
+  end
+
   private
 
   def build_service_node(options = {})
